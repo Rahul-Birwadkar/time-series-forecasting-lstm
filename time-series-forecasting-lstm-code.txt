@@ -1,0 +1,167 @@
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import MinMaxScaler
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Input, Dense, LSTM
+
+# Load the dataset
+df = pd.read_csv(r'C:\Users\Rahul\Desktop\Project Module\Datasets\nse_all_stock_data (1).csv')
+
+# Convert the 'Date' column to datetime format
+df['Date'] = pd.to_datetime(df['Date'])
+
+# Specify the specific date range
+start_date = '2014-07-04'
+end_date = '2024-07-05'
+
+# Filter the DataFrame for this specific date range
+date_df = df[(df['Date'] >= start_date) & (df['Date'] <= end_date)]
+
+# Select specific stock data
+tata = date_df[['Date', 'TATAMOTORS']]
+
+# Set the 'Date' column as the index
+tata.set_index('Date', inplace=True)
+
+# Plot the stock prices over time
+plt.plot(tata.index, tata['TATAMOTORS'])
+plt.title('TATAMOTORS Stock Price Over Time')
+plt.xlabel('Date')
+plt.ylabel('Stock Price')
+plt.show()
+
+# Normalize the data using MinMaxScaler
+scaler = MinMaxScaler(feature_range=(0, 1))
+tata_scaled = scaler.fit_transform(np.array(tata).reshape(-1, 1))
+
+# Split the data into training and testing sets
+training_size = int(len(tata_scaled) * 0.70)
+test_size = len(tata_scaled) - training_size
+train_data, test_data = tata_scaled[0:training_size, :], tata_scaled[training_size:len(tata_scaled), :1]
+
+# Plot training and test data
+plt.figure(figsize=(12, 6))
+plt.plot(train_data, label='Training Data')
+plt.plot(range(training_size, len(tata_scaled)), test_data, label='Test Data', color='orange')
+plt.title('Train and Test Data Plot')
+plt.xlabel('Index')
+plt.ylabel('Values')
+plt.legend()
+plt.show()
+
+# Function to create a dataset with a sliding window approach
+def create_dataset(dataset, time_step=1):
+    X, Y = [], []
+    for i in range(len(dataset) - time_step - 1):
+        a = dataset[i:(i + time_step), 0]  # Extracting the window of `time_step` size
+        X.append(a)
+        Y.append(dataset[i + time_step, 0])  # Next time step as the output
+    return np.array(X), np.array(Y)
+
+# Setting the time step (look-back period)
+time_step = 10
+
+# Creating the training and testing datasets
+X_train, y_train = create_dataset(train_data, time_step)
+X_test, y_test = create_dataset(test_data, time_step)
+
+# Reshape the input to be [samples, time steps, features], which is required for LSTM
+X_train = X_train.reshape(X_train.shape[0], X_train.shape[1], 1)
+X_test = X_test.reshape(X_test.shape[0], X_test.shape[1], 1)
+
+# Define the LSTM model
+model = Sequential()
+
+# Use Input layer to define the input shape
+model.add(Input(shape=(X_train.shape[1], 1)))  # Input layer with shape
+
+# Add LSTM layers
+model.add(LSTM(units=100, return_sequences=False))
+# model.add(LSTM(units=50, return_sequences=False))
+
+# Add Dense layers
+# model.add(Dense(units=25))
+model.add(Dense(units=1))
+
+# Compile the model
+model.compile(optimizer='adam', loss='mean_squared_error')
+
+# Fit the model without early stopping
+history = model.fit(X_train, y_train, validation_split=0.1, epochs=100, batch_size=64, verbose=1)
+
+# Print the model summary to check the structure
+# print(model.summary())
+
+# Plot the training and validation loss
+plt.plot(history.history['loss'], label='Training Loss')
+plt.plot(history.history['val_loss'], label='Validation Loss')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.legend()
+plt.title('Training and Validation Loss')
+plt.show()
+
+# Make Predictions on Train and Test Data
+train_predict = model.predict(X_train)
+test_predict = model.predict(X_test)
+
+# Inverse Transform Predictions
+train_predict = scaler.inverse_transform(train_predict)
+test_predict = scaler.inverse_transform(test_predict)
+
+# Inverse Transform the Actual Values for Comparison
+y_train_actual = scaler.inverse_transform(y_train.reshape(-1, 1))
+y_test_actual = scaler.inverse_transform(y_test.reshape(-1, 1))
+
+# Calculate RMSE
+train_rmse = math.sqrt(mean_squared_error(y_train_actual, train_predict))
+test_rmse = math.sqrt(mean_squared_error(y_test_actual, test_predict))
+
+# Calculate MAE
+train_mae = mean_absolute_error(y_train_actual, train_predict)
+test_mae = mean_absolute_error(y_test_actual, test_predict)
+
+# Calculate R² Score
+train_r2 = r2_score(y_train_actual, train_predict)
+test_r2 = r2_score(y_test_actual, test_predict)
+
+# Print results
+print(f'Train RMSE: {train_rmse}')
+print(f'Test RMSE: {test_rmse}')
+
+print(f'Train MAE: {train_mae}')
+print(f'Test MAE: {test_mae}')
+
+print(f'Train R²: {train_r2}')
+print(f'Test R²: {test_r2}')
+
+# Plot Actual vs. Predicted Stock Prices
+plt.figure(figsize=(12, 6))
+
+# Plot actual stock prices
+plt.plot(scaler.inverse_transform(tata_scaled), label='Actual Stock Price', color='blue')
+
+# Shift train predictions for plotting
+train_predict_plot = np.empty_like(tata_scaled)
+train_predict_plot[:, :] = np.nan
+train_predict_plot[time_step:len(train_predict) + time_step, :] = train_predict
+
+# Shift test predictions for plotting
+test_predict_plot = np.empty_like(tata_scaled)
+test_predict_plot[:, :] = np.nan
+test_predict_plot[len(train_predict) + (time_step * 2) + 1:len(tata_scaled) - 1, :] = test_predict
+
+# Plot train and test predictions
+plt.plot(train_predict_plot, label='Train Predictions', color='green')
+plt.plot(test_predict_plot, label='Test Predictions', color='red')
+
+# Add labels and legend
+plt.title('Actual vs Predicted Stock Prices')
+plt.xlabel('Time')
+plt.ylabel('Stock Price')
+plt.legend()
+plt.show()
+
